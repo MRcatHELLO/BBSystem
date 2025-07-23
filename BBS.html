@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Example</title>
+    </head>
+    <body>
+        <details id="registerDropdown">
+            <summary style="font-size:1.2em;cursor:pointer;">Register</summary>
+            <form id="registerForm" style="margin-top:10px;">
+                <label for="reg_usr">Username:</label><br>
+                <input type="text" id="reg_usr" required maxlength="16""><br>
+                <label for="reg_pwd">Password:</label><br>
+                <input type="password" id="reg_pwd" required minlength="8"><br>
+                <button type="submit">Register</button>
+            </form>
+        </details>
+        <details id="loginDropdown" open>
+            <summary style="font-size:1.2em;cursor:pointer;">Login</summary>
+            <form id="loginForm" style="margin-top:10px;">
+                <label for="login_usr">Username:</label><br>
+                <input type="text" id="login_usr" required><br>
+                <label for="login_pwd">Password:</label><br>
+                <input type="password" id="login_pwd" required><br>
+                <button type="submit">Login</button>
+            </form>
+        </details>
+        <div id="message" style="margin-top:20px;color:blue;"></div>
+        <div id="USERNAME" style="margin-top:20px;color:green;"></div>
+        <button id="logoutBtn" style="display:none;margin-top:10px;">Logout</button>
+        <div id="messaging" style="display:none;margin-top:20px;">
+            <h3>Send Message</h3>
+            <form id="msgForm">
+                <input type="text" id="msg_to" placeholder="Recipient username" required maxlength="16">
+                <input type="text" id="msg_body" placeholder="Your message" required maxlength="200">
+                <button type="submit">Send</button>
+            </form>
+            <div id="inbox" style="margin-top:15px;">
+                <h4>Inbox</h4>
+                <ul id="messages"></ul>
+                <button onclick="fetchInbox()">Refresh Inbox</button>
+                <button onclick="clearInbox()">Clear Inbox</button>
+            </div>
+        </div>
+
+        <script>
+let ws;
+let pendingAction = null;
+let currentUser = null;
+let loginAttemptUser = null; // Add this at the top of your script
+
+function connectWebSocket() {
+    #Enter your websocket IP adress here
+    ws = new WebSocket('ws://0.0.0.0:8765');
+    ws.onopen = function() {
+        showMessage('WebSocket connected!');
+    };
+    ws.onmessage = function(event) {
+        let data;
+        try {
+            data = JSON.parse(event.data);
+        } catch {
+            showMessage('Server: ' + event.data);
+            return;
+        }
+        if (data.type === 'register_result' && pendingAction === 'register') {
+            if (data.success) {
+                showMessage('Registration successful! You can now log in.');
+            } else {
+                showMessage(data.message || 'Registration failed.');
+            }
+            pendingAction = null;
+        } else if (data.type === 'login_result' && pendingAction === 'login') {
+            if (data.success) {
+                currentUser = loginAttemptUser; // Use the saved username
+                showLoggedIn(currentUser);
+            } else {
+                showMessage('Invalid username or password.');
+            }
+            pendingAction = null;
+            loginAttemptUser = null; // Clear after use
+        } else if (data.type === 'get_other_user_result' && pendingAction === 'get_other_user') {
+            if (data.success) {
+                showMessage('Other user: ' + data.otherUser);
+            } else {
+                showMessage('Failed to retrieve other user.');
+            }
+            pendingAction = null;
+        } else if (data.type === 'message_sent') {
+            showMessage('Message sent!');
+            fetchInbox(); // <-- Add this line
+        } else if (data.type === 'inbox') {
+            const ul = document.getElementById('messages');
+            ul.innerHTML = '';
+            if (data.messages && data.messages.length > 0) {
+                data.messages.forEach(msg => {
+                    const li = document.createElement('li');
+                    li.textContent = `From ${msg.from}: ${msg.body}`;
+                    ul.appendChild(li);
+                });
+            } else {
+                ul.innerHTML = '<li>No messages.</li>';
+            }
+        } else if (data.type === 'inbox_cleared') {
+            showMessage('Inbox cleared!');
+            fetchInbox();
+        } else {
+            showMessage('Server: ' + event.data);
+        }
+    };
+    ws.onclose = function() {
+        showMessage('WebSocket disconnected.');
+    };
+    ws.onerror = function(err) {
+        showMessage('WebSocket error.');
+    };
+}
+connectWebSocket();
+
+// Registration handler
+document.getElementById('registerForm').onsubmit = function(e) {
+    e.preventDefault();
+    const usr = document.getElementById('reg_usr').value;
+    const pwd = document.getElementById('reg_pwd').value;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'register', user: usr, password: pwd}));
+        pendingAction = 'register';
+    } else {
+        // Fallback to localStorage
+        if (localStorage.getItem('user_' + usr)) {
+            showMessage('Username already exists (local).');
+        } else {
+            localStorage.setItem('user_' + usr, pwd);
+            showMessage('Registration successful (local)! You can now log in.');
+        }
+    }
+    document.getElementById('registerForm').reset();
+};
+
+// Login handler
+document.getElementById('loginForm').onsubmit = function(e) {
+    e.preventDefault();
+    const usr = document.getElementById('login_usr').value;
+    const pwd = document.getElementById('login_pwd').value;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'login', user: usr, password: pwd}));
+        pendingAction = 'login';
+        loginAttemptUser = usr; // Save the attempted username
+    } else {
+        // Fallback to localStorage
+        const storedPwd = localStorage.getItem('user_' + usr);
+        if (storedPwd && storedPwd === pwd) {
+            currentUser = usr;
+            showLoggedIn(currentUser);
+        } else {
+            showMessage('Invalid username or password (local).');
+        }
+    }
+    document.getElementById('loginForm').reset();
+};
+
+// Show/hide messaging UI when logged in/out
+function showLoggedIn(username) {
+    document.getElementById('USERNAME').textContent = 'Logged in as: ' + username;
+    document.getElementById('logoutBtn').style.display = 'inline-block';
+    document.getElementById('messaging').style.display = 'block';
+    showMessage('Login successful!');
+    fetchInbox();
+    localStorage.setItem('currentUser', username); // <-- Add this line
+}
+
+document.getElementById('logoutBtn').onclick = function() {
+    currentUser = null;
+    document.getElementById('USERNAME').textContent = '';
+    document.getElementById('logoutBtn').style.display = 'none';
+    document.getElementById('messaging').style.display = 'none';
+    document.getElementById('messages').innerHTML = '';
+    showMessage('Logged out.');
+    localStorage.removeItem('currentUser');
+};
+
+// Send message handler
+document.getElementById('msgForm').onsubmit = function(e) {
+    e.preventDefault();
+    const to = document.getElementById('msg_to').value;
+    const body = document.getElementById('msg_body').value;
+    if (ws && ws.readyState === WebSocket.OPEN && currentUser) {
+        ws.send(JSON.stringify({type: 'send_message', from: currentUser, to: to, body: body}));
+    } else {
+        showMessage('WebSocket not connected or not logged in.');
+    }
+    document.getElementById('msgForm').reset();
+};
+
+// Fetch inbox messages
+function fetchInbox() {
+    if (ws && ws.readyState === WebSocket.OPEN && currentUser) {
+        ws.send(JSON.stringify({type: 'get_messages', user: currentUser}));
+    }
+}
+
+function clearInbox() {
+    if (ws && ws.readyState === WebSocket.OPEN && currentUser) {
+        ws.send(JSON.stringify({type: 'clear_inbox', user: currentUser}));
+    }
+}
+
+function showMessage(msg) {
+    document.getElementById('message').textContent = msg;
+}
+
+window.onload = function() {
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+        currentUser = savedUser;
+        showLoggedIn(currentUser);
+    }
+};
+        </script>
+    </body>
+</html>
