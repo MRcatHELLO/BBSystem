@@ -1,20 +1,13 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <title>Example</title>
+        <link rel="stylesheet" href="style.css">
+        <title>BBS Example</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
     </head>
     <body>
-        <details id="registerDropdown">
-            <summary style="font-size:1.2em;cursor:pointer;">Register</summary>
-            <form id="registerForm" style="margin-top:10px;">
-                <label for="reg_usr">Username:</label><br>
-                <input type="text" id="reg_usr" required maxlength="16""><br>
-                <label for="reg_pwd">Password:</label><br>
-                <input type="password" id="reg_pwd" required minlength="8"><br>
-                <button type="submit">Register</button>
-            </form>
-        </details>
-        <details id="loginDropdown" open>
+        <details id="loginDropdown">
             <summary style="font-size:1.2em;cursor:pointer;">Login</summary>
             <form id="loginForm" style="margin-top:10px;">
                 <label for="login_usr">Username:</label><br>
@@ -23,34 +16,58 @@
                 <input type="password" id="login_pwd" required><br>
                 <button type="submit">Login</button>
             </form>
+            <details id="registerDropdown">
+                <summary style="font-size:1.2em;cursor:pointer;">Register</summary>
+                <form id="registerForm" style="margin-top:10px;">
+                    <label for="reg_usr">Username:</label><br>
+                    <input type="text" id="reg_usr" required maxlength="16"><br>
+                    <label for="reg_pwd">Password:</label><br>
+                    <input type="password" id="reg_pwd" required minlength="8"><br>
+                    <button type="submit">Register</button>
+                </form>
+                <p style="margin-top:10px;">Note: Registration is server-based and persistent.</p>
+            </details>
         </details>
         <div id="message" style="margin-top:20px;color:blue;"></div>
         <div id="USERNAME" style="margin-top:20px;color:green;"></div>
         <button id="logoutBtn" style="display:none;margin-top:10px;">Logout</button>
-        <div id="messaging" style="display:none;margin-top:20px;">
-            <h3>Send Message</h3>
-            <form id="msgForm">
-                <input type="text" id="msg_to" placeholder="Recipient username" required maxlength="16">
-                <input type="text" id="msg_body" placeholder="Your message" required maxlength="200">
-                <button type="submit">Send</button>
-            </form>
-            <div id="inbox" style="margin-top:15px;">
-                <h4>Inbox</h4>
-                <ul id="messages"></ul>
-                <button onclick="fetchInbox()">Refresh Inbox</button>
-                <button onclick="clearInbox()">Clear Inbox</button>
+        <details>
+            <summary style="font-size:1.2em;cursor:pointer;">Messaging</summary>
+            <div id="messaging" style="display:none;margin-top:20px;">
+                <h3>Send Message</h3>
+                <form id="msgForm">
+                    <input type="text" id="msg_to" placeholder="Recipient username" required maxlength="16">
+                    <input type="text" id="msg_body" placeholder="Your message" required maxlength="200">
+                    <button type="submit">Send</button>
+                </form>
+                <div id="inbox" style="margin-top:15px;">
+                    <h4>Inbox</h4>
+                    <ul id="messages"></ul>
+                    <button onclick="fetchInbox()">Refresh Inbox</button>
+                    <button onclick="clearInbox()">Clear Inbox</button>
+                </div>
             </div>
-        </div>
-
+        </details>
+        <!-- Public Message Board -->
+        <details>
+            <summary style="font-size:1.2em;cursor:pointer;">Public Message Board</summary>
+            <div id="publicBoard" style="margin-top:20px;">
+                <form id="publicMsgForm">
+                    <input type="text" id="public_msg_body" placeholder="Post a message..." required maxlength="200">
+                    <button type="submit">Post</button>
+                </form>
+                <ul id="publicMessages" style="margin-top:10px;"></ul>
+                <button onclick="fetchPublicBoard()">Refresh Board</button>
+            </div>
+        </details>
         <script>
 let ws;
 let pendingAction = null;
 let currentUser = null;
-let loginAttemptUser = null; // Add this at the top of your script
+let loginAttemptUser = null;
 
 function connectWebSocket() {
-    #Enter your websocket IP adress here
-    ws = new WebSocket('ws://0.0.0.0:8765');
+    ws = new WebSocket('ws://127.0.0.1:6509');
     ws.onopen = function() {
         showMessage('WebSocket connected!');
     };
@@ -71,23 +88,16 @@ function connectWebSocket() {
             pendingAction = null;
         } else if (data.type === 'login_result' && pendingAction === 'login') {
             if (data.success) {
-                currentUser = loginAttemptUser; // Use the saved username
+                currentUser = loginAttemptUser;
                 showLoggedIn(currentUser);
             } else {
                 showMessage('Invalid username or password.');
             }
             pendingAction = null;
-            loginAttemptUser = null; // Clear after use
-        } else if (data.type === 'get_other_user_result' && pendingAction === 'get_other_user') {
-            if (data.success) {
-                showMessage('Other user: ' + data.otherUser);
-            } else {
-                showMessage('Failed to retrieve other user.');
-            }
-            pendingAction = null;
+            loginAttemptUser = null;
         } else if (data.type === 'message_sent') {
             showMessage('Message sent!');
-            fetchInbox(); // <-- Add this line
+            fetchInbox();
         } else if (data.type === 'inbox') {
             const ul = document.getElementById('messages');
             ul.innerHTML = '';
@@ -103,6 +113,20 @@ function connectWebSocket() {
         } else if (data.type === 'inbox_cleared') {
             showMessage('Inbox cleared!');
             fetchInbox();
+        } else if (data.type === 'public_message') {
+            showPublicMessage(data.message);
+        } else if (data.type === 'public_posts') {
+            const ul = document.getElementById('publicMessages');
+            ul.innerHTML = '';
+            if (data.posts && data.posts.length > 0) {
+                data.posts.forEach(post => {
+                    const li = document.createElement('li');
+                    li.textContent = `${post.from}: ${post.body}`;
+                    ul.appendChild(li);
+                });
+            } else {
+                ul.innerHTML = '<li>No posts yet.</li>';
+            }
         } else {
             showMessage('Server: ' + event.data);
         }
@@ -116,7 +140,6 @@ function connectWebSocket() {
 }
 connectWebSocket();
 
-// Registration handler
 document.getElementById('registerForm').onsubmit = function(e) {
     e.preventDefault();
     const usr = document.getElementById('reg_usr').value;
@@ -124,19 +147,10 @@ document.getElementById('registerForm').onsubmit = function(e) {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({type: 'register', user: usr, password: pwd}));
         pendingAction = 'register';
-    } else {
-        // Fallback to localStorage
-        if (localStorage.getItem('user_' + usr)) {
-            showMessage('Username already exists (local).');
-        } else {
-            localStorage.setItem('user_' + usr, pwd);
-            showMessage('Registration successful (local)! You can now log in.');
-        }
     }
     document.getElementById('registerForm').reset();
 };
 
-// Login handler
 document.getElementById('loginForm').onsubmit = function(e) {
     e.preventDefault();
     const usr = document.getElementById('login_usr').value;
@@ -144,28 +158,19 @@ document.getElementById('loginForm').onsubmit = function(e) {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({type: 'login', user: usr, password: pwd}));
         pendingAction = 'login';
-        loginAttemptUser = usr; // Save the attempted username
-    } else {
-        // Fallback to localStorage
-        const storedPwd = localStorage.getItem('user_' + usr);
-        if (storedPwd && storedPwd === pwd) {
-            currentUser = usr;
-            showLoggedIn(currentUser);
-        } else {
-            showMessage('Invalid username or password (local).');
-        }
+        loginAttemptUser = usr;
     }
     document.getElementById('loginForm').reset();
 };
 
-// Show/hide messaging UI when logged in/out
 function showLoggedIn(username) {
     document.getElementById('USERNAME').textContent = 'Logged in as: ' + username;
     document.getElementById('logoutBtn').style.display = 'inline-block';
     document.getElementById('messaging').style.display = 'block';
     showMessage('Login successful!');
     fetchInbox();
-    localStorage.setItem('currentUser', username); // <-- Add this line
+    fetchPublicBoard();
+    localStorage.setItem('currentUser', username);
 }
 
 document.getElementById('logoutBtn').onclick = function() {
@@ -174,11 +179,11 @@ document.getElementById('logoutBtn').onclick = function() {
     document.getElementById('logoutBtn').style.display = 'none';
     document.getElementById('messaging').style.display = 'none';
     document.getElementById('messages').innerHTML = '';
+    document.getElementById('publicMessages').innerHTML = '';
     showMessage('Logged out.');
     localStorage.removeItem('currentUser');
 };
 
-// Send message handler
 document.getElementById('msgForm').onsubmit = function(e) {
     e.preventDefault();
     const to = document.getElementById('msg_to').value;
@@ -191,10 +196,26 @@ document.getElementById('msgForm').onsubmit = function(e) {
     document.getElementById('msgForm').reset();
 };
 
-// Fetch inbox messages
+document.getElementById('publicMsgForm').onsubmit = function(e) {
+    e.preventDefault();
+    const body = document.getElementById('public_msg_body').value;
+    if (ws && ws.readyState === WebSocket.OPEN && currentUser) {
+        ws.send(JSON.stringify({type: 'public_post', from: currentUser, body: body}));
+    } else {
+        showMessage('WebSocket not connected or not logged in.');
+    }
+    document.getElementById('publicMsgForm').reset();
+};
+
 function fetchInbox() {
     if (ws && ws.readyState === WebSocket.OPEN && currentUser) {
         ws.send(JSON.stringify({type: 'get_messages', user: currentUser}));
+    }
+}
+
+function fetchPublicBoard() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'get_public_posts'}));
     }
 }
 
@@ -206,6 +227,13 @@ function clearInbox() {
 
 function showMessage(msg) {
     document.getElementById('message').textContent = msg;
+}
+
+function showPublicMessage(msg) {
+    const ul = document.getElementById('publicMessages');
+    const li = document.createElement('li');
+    li.textContent = msg;
+    ul.appendChild(li);
 }
 
 window.onload = function() {

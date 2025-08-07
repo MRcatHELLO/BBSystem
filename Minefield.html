@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Minefield Game</title>
+    <style>
+        body {
+            font-family: Arial;
+            text-align: center;
+            background: #111;
+            color: #eee;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .cell {
+            width: 60px;
+            height: 60px;
+            background: #444;
+            border: 2px solid #333;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .cell.safe {
+            background: #2ecc71;
+        }
+
+        .cell.mine {
+            background: #e74c3c;
+        }
+
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        input {
+            padding: 5px;
+            width: 80px;
+        }
+    </style>
+</head>
+
+<body>
+    <details id="loginDropdown" style="position: absolute; left: 0; margin-left: 20px">
+        <summary>User Account</summary>
+        <form id="loginForm" style="margin-top:10px;">
+            <label for="login_usr">Username:</label><br>
+            <input type="text" id="login_usr" required><br>
+            <label for="login_pwd">Password:</label><br>
+            <input type="password" id="login_pwd" required><br>
+            <button type="submit">Login</button>
+        </form>
+        <button id="logoutBtn" style="position: absolute; left: 0;">Logout</button>
+    </details>
+
+
+    <h4 id="USERNAME"></h4>
+    <h1>💣 Minefield Game</h1>
+    <p>Balance: $<span id="balance"></span></p>
+
+    <label for="bet">Bet Amount: $</label>
+    <input type="number" id="bet" value="10" min="1">
+
+    <label for="mines">Mines:</label>
+    <input type="number" id="mines" value="3" min="1" max="24">
+
+    <button onclick="startGame()">Start Game</button>
+    <button onclick="cashOut()" id="cashoutBtn" disabled>💸 Cash Out</button>
+    <button onclick="cashOutToSocket()" id="CashToSocket">Cash to Account</button>
+
+    <div class="grid" id="grid"></div>
+
+    <h2 id="status"></h2>
+    <h3 id="multiplier">Multiplier: 1.00x</h3>
+    <h3 id="potential">Potential Winnings: $0</h3>
+    <script src="Server.js"></script>
+    <script>
+        const gridSize = 25;
+        let mineIndices = [];
+        let revealed = new Set();
+        let gameOver = false;
+        let multiplier = 1;
+        let betAmount = 0;
+        let balance = 0;
+        let initialBet = 0;
+        let mineCount = 3; // default value, will be set in startGame
+
+
+
+
+         // function loadBalance() {
+         //   const storedBalance = localStorage.getItem("Balance");
+         //   console.log(storedBalance);
+         //   if (storedBalance > 0) {
+         //       document.getElementById("balance").textContent = storedBalance;
+         //   }
+        //}
+
+        function updateMultiplier() {
+            // Multiplier increases faster with more mines
+            // Example formula: base odds + revealed * (mineCount / (gridSize - mineCount))
+            multiplier = (1 + revealed.size * (mineCount / (gridSize - mineCount))).toFixed(2);
+            document.getElementById("multiplier").textContent = `Multiplier: ${multiplier}x`;
+            document.getElementById("potential").textContent = `Potential Winnings: $${(initialBet * multiplier).toFixed(2)}`;
+
+        }
+
+        function startGame() {
+            mineCount = Math.min(parseInt(document.getElementById("mines").value), gridSize - 1);
+            betAmount = parseFloat(document.getElementById("bet").value);
+            if (betAmount <= 0 || betAmount > balance) {
+                alert("Invalid bet amount");
+                return;
+            }
+
+            // Deduct bet
+            balance -= betAmount;
+            updateBalance(balance);
+            initialBet = betAmount;
+
+            mineIndices = [];
+            revealed.clear();
+            gameOver = false;
+            multiplier = 1;
+            updateMultiplier();
+            document.getElementById("status").textContent = '';
+            document.getElementById("cashoutBtn").disabled = false;
+            document.getElementById("CashToSocket").disabled = true;
+
+            // Generate mine positions
+            while (mineIndices.length < mineCount) {
+                const i = Math.floor(Math.random() * gridSize);
+                if (!mineIndices.includes(i)) mineIndices.push(i);
+            }
+
+            // Build grid
+            const grid = document.getElementById("grid");
+            grid.innerHTML = '';
+            const columns = Math.round(Math.sqrt(gridSize));
+            grid.style.gridTemplateColumns = `repeat(${columns}, 60px)`;
+            for (let i = 0; i < gridSize; i++) {
+                const cell = document.createElement("div");
+                cell.className = "cell";
+                cell.addEventListener("click", () => revealCell(cell, i));
+                grid.appendChild(cell);
+            }
+        }
+
+        function revealCell(cell, index) {
+            if (gameOver || revealed.has(index)) return;
+
+            if (mineIndices.includes(index)) {
+                cell.classList.add("mine");
+                cell.textContent = "💣";
+                gameOver = true;
+                document.getElementById("status").textContent = "💥 You hit a mine! You lost.";
+                revealAllMines();
+                document.getElementById("cashoutBtn").disabled = true;
+                updateBalance(balance)
+            } else {
+                cell.classList.add("safe");
+                cell.textContent = "✅";
+                revealed.add(index);
+                updateMultiplier();
+                document.getElementById("status").textContent = `Safe clicks: ${revealed.size}`;
+            }
+        }
+
+        function revealAllMines() {
+            const grid = document.getElementById("grid").children;
+            mineIndices.forEach(index => {
+                const cell = grid[index];
+                if (!cell.classList.contains("mine")) {
+                    cell.classList.add("mine");
+                    cell.textContent = "💣";
+                }
+            });
+        }
+
+        function cashOut() {
+            if (gameOver || revealed.size === 0) return;
+            const winnings = initialBet * multiplier;
+            balance += winnings;
+            updateBalance(balance);
+            document.getElementById("status").textContent = `✅ You cashed out: $${winnings.toFixed(2)}`;
+            gameOver = true;
+            document.getElementById("cashoutBtn").disabled = true;
+            document.getElementById("CashToSocket").disabled = false;
+            revealAllMines();
+        }
+        if (localStorage.length = 0) {
+            document.getElementById("balance").textContent = balance.toFixed(2);
+        }
+
+        updateBalance(balance);
+    </script>
+
+</body>
+
+</html>
